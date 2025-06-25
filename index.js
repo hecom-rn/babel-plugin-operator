@@ -256,7 +256,7 @@ module.exports = function (babel) {
 		  }
   
 		  let tab = {
-			// '+': 'add',
+			'+': 'add',
 			'-': 'sub',
 			'*': 'mul',
 			'/': 'div',
