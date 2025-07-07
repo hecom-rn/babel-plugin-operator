@@ -89,6 +89,39 @@ module.exports = function (babel) {
             this.file.set('shouldProcess', shouldProcess);
         },
         visitor: {
+            // 新增的 CallExpression 处理逻辑
+            CallExpression(path) {
+                if (!this.file.get('shouldProcess')) return;
+                initStatus(path);
+                if (!path.node.BPO_STATUS) return;
+
+                const { callee } = path.node;
+                
+                // 1. 检查是否为 Math 的静态方法调用（如 Math.max(a, b)）
+                if (t.isMemberExpression(callee) && 
+                    t.isIdentifier(callee.object, { name: 'Math' }) &&
+                    t.isIdentifier(callee.property)) {
+                    
+                    const methodName = callee.property.name;
+                    const supportedMethods = ['max', 'min', 'abs', 'floor', 'ceil', 'round']; // 可扩展其他方法
+                    
+                    if (supportedMethods.includes(methodName)) {
+                        // 2. 替换为 Decimal.methodName(...args)
+                        path.replaceWith(
+                            t.callExpression(
+                                t.memberExpression(
+                                    t.memberExpression(
+                                        t.identifier(this.file.get('options').globalObject),
+                                        t.identifier('_Decimal')
+                                    ),
+                                    t.identifier(methodName)
+                                ),
+                                path.node.arguments
+                            )
+                        );
+                    }
+                }
+            },
             BlockStatement(path) {
                 if (!this.file.get('shouldProcess')) return;
                 initStatus(path)
@@ -175,50 +208,61 @@ module.exports = function (babel) {
             },
             UpdateExpression(path) {
                 if (!this.file.get('shouldProcess')) return;
-                initStatus(path)
-                if (!path.node.BPO_STATUS) {
-                    return
-                }
+                initStatus(path);
+                if (!path.node.BPO_STATUS) return;
 
-                var tab = {
-                    '++': ['incrementPrefix', 'incrementSuffix'],
-                    '--': ['decrementPrefix', 'decrementSuffix'],
-                }
+                const tab = {
+                    '++': 'add',
+                    '--': 'sub'
+                };
 
-                let arr = tab[path.node.operator]
-                if (!arr) {
-                    return
-                }
-                let method = path.node.prefix ? arr[0] : arr[1]
+                const method = tab[path.node.operator];
+                if (!method) return;
+
+                const globalObj = t.identifier(this.file.get('options').globalObject);
+                const opObj = t.memberExpression(globalObj, t.identifier('_Op'));
+                const addFn = t.memberExpression(opObj, t.identifier(method));
+
+                const one = t.numericLiteral(1);
+                const arg = path.node.argument;
+
+                // 封装 null/"" 转换逻辑为函数
+                const coerceNullOrEmpty = (value) => {
+                    return t.conditionalExpression(
+                        t.logicalExpression(
+                            '||',
+                            t.binaryExpression('===', value, t.nullLiteral()),
+                            t.binaryExpression('===', value, t.stringLiteral(''))
+                        ),
+                        t.numericLiteral(0), // 如果 value 是 null 或 ""，替换为 0
+                        value                // 否则保留原值
+                    );
+                };
 
                 if (path.node.prefix) {
-                    // 前缀：++a  --b
+                    // 前缀 ++a --> (a = global._Op.add(coerce(a), 1))
                     path.replaceWith(
-                        t.callExpression(
-                            t.MemberExpression(
-                                t.memberExpression(t.identifier(this.file.get('options').globalObject), t.identifier('_Op')),
-                                t.identifier(method)
-                            ),
-                            [path.node.argument]
+                        t.assignmentExpression(
+                            '=',
+                            arg,
+                            t.callExpression(addFn, [coerceNullOrEmpty(arg), one])
                         )
-                    )
+                    );
                 } else {
-                    // 后缀：a++  b--
-                    // (tmp = a, global._Op.incrementSuffix(a), tmp)
-                    const tmp = path.scope.generateUidIdentifierBasedOnNode(path.node.argument, 'old')
+                    // 后缀 a++ --> 
+                    // (tmp = a, a = global._Op.add(coerce(a), 1), coerce(tmp))
+                    const tmp = path.scope.generateUidIdentifierBasedOnNode(arg, 'old');
                     path.replaceWith(
                         t.sequenceExpression([
-                            t.assignmentExpression('=', tmp, path.node.argument),
-                            t.callExpression(
-                                t.MemberExpression(
-                                    t.memberExpression(t.identifier(this.file.get('options').globalObject), t.identifier('_Op')),
-                                    t.identifier(method)
-                                ),
-                                [path.node.argument]
+                            t.assignmentExpression('=', tmp, arg),
+                            t.assignmentExpression(
+                                '=',
+                                arg,
+                                t.callExpression(addFn, [coerceNullOrEmpty(arg), one])
                             ),
-                            tmp
+                            coerceNullOrEmpty(tmp) // 关键修改：对临时变量也做转换
                         ])
-                    )
+                    );
                 }
             },
             AssignmentExpression(path) {
