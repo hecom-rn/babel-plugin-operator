@@ -58,23 +58,10 @@ module.exports = function (babel) {
             const filename = file.opts.filename || '';
             const { include, exclude } = options;
             
-            let shouldProcess = !include && !exclude; 
+            let shouldProcess = true; 
 
-            // 检查白名单
-            if (include) {
-                if (Array.isArray(include)) {
-                    shouldProcess = include.some(pattern => 
-                        typeof pattern === 'string' ? filename.includes(pattern) : pattern.test(filename)
-                    );
-                } else {
-                    shouldProcess = typeof include === 'string' 
-                        ? filename.includes(include) 
-                        : include.test(filename);
-                }
-            }
-            
             // 黑名单
-            if (exclude && (shouldProcess || !include)) {
+            if (exclude) {
                 if (Array.isArray(exclude)) {
                     shouldProcess = !exclude.some(pattern => 
                         typeof pattern === 'string' ? filename.includes(pattern) : pattern.test(filename)
@@ -86,6 +73,19 @@ module.exports = function (babel) {
                 }
             }
 
+            // 检查白名单
+            if (include && !shouldProcess) {
+                if (Array.isArray(include)) {
+                    shouldProcess = include.some(pattern => 
+                        typeof pattern === 'string' ? filename.includes(pattern) : pattern.test(filename)
+                    );
+                } else {
+                    shouldProcess = typeof include === 'string' 
+                        ? filename.includes(include) 
+                        : include.test(filename);
+                }
+            }
+            
             this.file.set('shouldProcess', shouldProcess);
         },
         visitor: {
