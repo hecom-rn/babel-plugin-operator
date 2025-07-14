@@ -89,6 +89,26 @@ module.exports = function (babel) {
             this.file.set('shouldProcess', shouldProcess);
         },
         visitor: {
+            NewExpression(path) {
+                if (!this.file.get('shouldProcess')) return;
+                initStatus(path);
+                if (!path.node.BPO_STATUS) return;
+
+                const { callee } = path.node;
+
+                // 检查是否为 new Number() 调用
+                if (t.isIdentifier(callee, { name: 'Number' })) {
+                    path.replaceWith(
+                        t.callExpression(
+                            t.memberExpression(
+                                t.identifier(this.file.get('options').globalObject),
+                                t.identifier('_Number')
+                            ),
+                            path.node.arguments
+                        )
+                    );
+                }
+            },
             // 新增的 CallExpression 处理逻辑
             CallExpression(path) {
                 if (!this.file.get('shouldProcess')) return;
@@ -96,7 +116,19 @@ module.exports = function (babel) {
                 if (!path.node.BPO_STATUS) return;
 
                 const { callee } = path.node;
-                
+
+                if (t.isIdentifier(callee, { name: 'Number' })) {
+                    path.replaceWith(
+                        t.callExpression(
+                            t.memberExpression(
+                                t.identifier(this.file.get('options').globalObject),
+                                t.identifier('_Number')
+                            ),
+                            path.node.arguments
+                        )
+                    );
+                }
+
                 // 1. 检查是否为 Math 的静态方法调用（如 Math.max(a, b)）
                 if (t.isMemberExpression(callee) && 
                     t.isIdentifier(callee.object, { name: 'Math' }) &&
