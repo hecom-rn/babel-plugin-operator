@@ -229,7 +229,6 @@ module.exports = function (babel) {
                 const one = t.numericLiteral(1);
                 const arg = path.node.argument;
 
-                // 封装 null/"" 转换逻辑为函数
                 const coerceNullOrEmpty = (value) => {
                     return t.conditionalExpression(
                         t.logicalExpression(
@@ -237,13 +236,12 @@ module.exports = function (babel) {
                             t.binaryExpression('===', value, t.nullLiteral()),
                             t.binaryExpression('===', value, t.stringLiteral(''))
                         ),
-                        t.numericLiteral(0), // 如果 value 是 null 或 ""，替换为 0
-                        value                // 否则保留原值
+                        t.numericLiteral(0),
+                        value
                     );
                 };
 
                 if (path.node.prefix) {
-                    // 前缀 ++a --> (a = global._Op.add(coerce(a), 1))
                     path.replaceWith(
                         t.assignmentExpression(
                             '=',
@@ -252,26 +250,27 @@ module.exports = function (babel) {
                         )
                     );
                 } else {
-                    // 后缀 a++ --> 
-                    // (tmp = a, a = global._Op.add(coerce(a), 1), coerce(tmp))
                     const tmp = path.scope.generateUidIdentifierBasedOnNode(arg, 'old');
 
-                    // 1. 先声明临时变量
+                    // 1. 创建变量声明语句
                     const varDeclaration = t.variableDeclaration('var', [
-                        t.variableDeclarator(tmp)
+                        t.variableDeclarator(tmp, arg) // 直接初始化变量
                     ]);
 
-                    // 2. 构建完整的替换表达式
+                    // 2. 创建赋值和返回值表达式
+                    const assignment = t.assignmentExpression(
+                        '=',
+                        arg,
+                        t.callExpression(addFn, [coerceNullOrEmpty(arg), one])
+                    );
+                    const returnValue = coerceNullOrEmpty(tmp);
+
+                    // 3. 将变量声明和表达式组合成BlockStatement
                     path.replaceWith(
-                        t.sequenceExpression([
+                        t.blockStatement([
                             varDeclaration,
-                            t.assignmentExpression('=', tmp, arg),
-                            t.assignmentExpression(
-                                '=',
-                                arg,
-                                t.callExpression(addFn, [coerceNullOrEmpty(arg), one])
-                            ),
-                            coerceNullOrEmpty(tmp)
+                            t.expressionStatement(assignment),
+                            t.expressionStatement(returnValue)
                         ])
                     );
                 }
