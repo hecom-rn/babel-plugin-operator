@@ -103,7 +103,7 @@ module.exports = function (babel) {
                     t.isIdentifier(callee.property)) {
                     
                     const methodName = callee.property.name;
-                    const supportedMethods = ['max', 'min', 'abs', 'floor', 'ceil', 'round']; // 可扩展其他方法
+                    const supportedMethods = ['max', 'min', 'abs', 'floor', 'ceil', 'round', 'pow', 'sqrt']; // 可扩展其他方法
                     
                     if (supportedMethods.includes(methodName)) {
                         // 2. 替换为 Decimal.methodName(...args)
@@ -158,6 +158,9 @@ module.exports = function (babel) {
                     '!==': 'notStrictEqual',
 
                     'instanceof': 'instanceOf',
+
+                    '&&': 'logicalAnd',
+                    '||': 'logicalOr'
                 }
 
                 let method = tab[path.node.operator]
@@ -252,15 +255,23 @@ module.exports = function (babel) {
                     // 后缀 a++ --> 
                     // (tmp = a, a = global._Op.add(coerce(a), 1), coerce(tmp))
                     const tmp = path.scope.generateUidIdentifierBasedOnNode(arg, 'old');
+
+                    // 1. 先声明临时变量
+                    const varDeclaration = t.variableDeclaration('var', [
+                        t.variableDeclarator(tmp)
+                    ]);
+
+                    // 2. 构建完整的替换表达式
                     path.replaceWith(
                         t.sequenceExpression([
+                            varDeclaration,
                             t.assignmentExpression('=', tmp, arg),
                             t.assignmentExpression(
                                 '=',
                                 arg,
                                 t.callExpression(addFn, [coerceNullOrEmpty(arg), one])
                             ),
-                            coerceNullOrEmpty(tmp) // 关键修改：对临时变量也做转换
+                            coerceNullOrEmpty(tmp)
                         ])
                     );
                 }
